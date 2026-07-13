@@ -720,22 +720,37 @@
     updateMemberCountDisplay();
   }
 
-  async function loadMembersFromSheet(){
-    try{
-      const res = await fetch(SCRIPT_URL + "?action=getMembers");
-      const data = await res.json();
-      if(Array.isArray(data)){
-        registeredUsers = data.map(m => ({
-          name: m.name || '',
-          email: (m.email || '').trim().toLowerCase(),
-          phone: (m.phone || '').trim(),
-          whatsapp: (m.whatsapp || '').trim()
-        }));
-        renderMembersFromSheet(registeredUsers);
-      }
-    }catch(err){
-      console.error('Could not load members from Google Sheets:', err);
-    }
+  function loadMembersFromSheet(){
+    // Apps Script's doGet response doesn't send CORS headers, so fetch() gets
+    // blocked by the browser. JSONP (a <script> tag) sidesteps CORS entirely.
+    return new Promise((resolve) => {
+      const callbackName = 'membersCallback_' + Date.now();
+
+      window[callbackName] = function(data){
+        if(Array.isArray(data)){
+          registeredUsers = data.map(m => ({
+            name: String(m.name || ''),
+            email: String(m.email || '').trim().toLowerCase(),
+            phone: String(m.phone || '').trim(),
+            whatsapp: String(m.whatsapp || '').trim()
+          }));
+          renderMembersFromSheet(registeredUsers);
+        }
+        delete window[callbackName];
+        script.remove();
+        resolve();
+      };
+
+      const script = document.createElement('script');
+      script.src = SCRIPT_URL + '?action=getMembers&callback=' + callbackName;
+      script.onerror = () => {
+        console.error('Could not load members from Google Sheets.');
+        delete window[callbackName];
+        script.remove();
+        resolve();
+      };
+      document.body.appendChild(script);
+    });
   }
 
   // fetch the real member list from Google Sheets as soon as the page loads
