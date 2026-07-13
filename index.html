@@ -543,7 +543,7 @@
   <div class="eyebrow reveal"><span class="rule"></span>The people here so far</div>
   <h2 class="display reveal" style="font-size:clamp(1.8rem,4vw,2.6rem);">Our members</h2>
   <div class="members-grid" id="membersGrid">
-    <div class="member-card reveal">
+    <div class="member-card reveal leader-card">
       <div class="avatar">L</div>
       <h3>Lokesh</h3>
       <div class="role">Leader</div>
@@ -683,12 +683,18 @@
     depthLabel.textContent = Math.round(pct*3) + 'm';
   }, {passive:true});
 
-  // join form demo submit
+  // join form — now backed by Google Sheets as the single source of truth
   const joinForm = document.getElementById('joinForm');
   const joinBtn = document.getElementById('joinBtn');
   const joinSuccess = document.getElementById('joinSuccess');
   const membersGrid = document.getElementById('membersGrid');
-  const registeredUsers = []; // in-memory only — resets on page refresh, no backend yet
+  const memberCountStat = document.getElementById('memberCountStat');
+
+  // Your Apps Script Web App URL (same one used for POST)
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzJPZAb0egvlFmM6XlTHdpQLNFMsMPzL-RdYugo6SnQRzCintWMJt48lV711OtWndyfUQ/exec";
+
+  // registeredUsers always mirrors what's in the Google Sheet (fetched from server)
+  let registeredUsers = [];
 
   function addMemberCard(name){
     const initial = name.trim().charAt(0).toUpperCase() || '?';
@@ -701,6 +707,39 @@
     `;
     membersGrid.appendChild(card);
   }
+
+  function updateMemberCountDisplay(){
+    // 1 static leader card (Lokesh, already in the HTML) + all sheet-registered members
+    memberCountStat.textContent = 1 + registeredUsers.length;
+  }
+
+  function renderMembersFromSheet(members){
+    // remove every sheet-driven card, but keep the static leader card untouched
+    membersGrid.querySelectorAll('.member-card:not(.leader-card)').forEach(card => card.remove());
+    members.forEach(m => addMemberCard(m.name));
+    updateMemberCountDisplay();
+  }
+
+  async function loadMembersFromSheet(){
+    try{
+      const res = await fetch(SCRIPT_URL + "?action=getMembers");
+      const data = await res.json();
+      if(Array.isArray(data)){
+        registeredUsers = data.map(m => ({
+          name: m.name || '',
+          email: (m.email || '').trim().toLowerCase(),
+          phone: (m.phone || '').trim(),
+          whatsapp: (m.whatsapp || '').trim()
+        }));
+        renderMembersFromSheet(registeredUsers);
+      }
+    }catch(err){
+      console.error('Could not load members from Google Sheets:', err);
+    }
+  }
+
+  // fetch the real member list from Google Sheets as soon as the page loads
+  loadMembersFromSheet();
 
   function showDuplicateError(){
     let errBox = document.getElementById('duplicateError');
@@ -718,7 +757,7 @@
     if(errBox) errBox.remove();
   }
 
-  joinForm.addEventListener('submit', (e)=>{
+  joinForm.addEventListener('submit', async (e)=>{
     e.preventDefault();
     clearDuplicateError();
 
@@ -736,42 +775,45 @@
       showDuplicateError();
       return;
     }
-fetch("https://script.google.com/macros/s/AKfycbzJPZAb0egvlFmM6XlTHdpQLNFMsMPzL-RdYugo6SnQRzCintWMJt48lV711OtWndyfUQ/exec", {
-  method: "POST",
-  body: JSON.stringify({
-    name: name,
-    email: email,
-    phone: phone,
-    whatsapp: whatsapp,
-    year: year
-  })
-});
 
     joinBtn.classList.add('loading');
     joinBtn.disabled = true;
 
+    try{
+      await fetch(SCRIPT_URL, {
+        method: "POST",
+        body: JSON.stringify({
+          name: name,
+          email: email,
+          phone: phone,
+          whatsapp: whatsapp,
+          year: year
+        })
+      });
+    }catch(err){
+      console.error('Could not save registration to Google Sheets:', err);
+    }
+
+    // re-sync from Google Sheets so the new member (and everyone else's view) is accurate
+    await loadMembersFromSheet();
+
+    joinBtn.classList.remove('loading');
+    joinBtn.disabled = false;
+
+    joinForm.style.display='none';
+    joinSuccess.classList.add('show');
+    joinSuccess.querySelector('h3').textContent = `Welcome, ${name}.`;
+
+    // tsunami + shark celebration effect
+    const tsunamiOverlay = document.getElementById('tsunamiOverlay');
+    spawnTsunamiFX();
+    tsunamiOverlay.classList.add('show');
     setTimeout(()=>{
-      registeredUsers.push({ name, email, phone, whatsapp });
-      addMemberCard(name);
-
-      const memberCountStat = document.getElementById('memberCountStat');
-      memberCountStat.textContent = parseInt(memberCountStat.textContent, 10) + 1;
-
-      joinForm.style.display='none';
-      joinSuccess.classList.add('show');
-      joinSuccess.querySelector('h3').textContent = `Welcome, ${name}.`;
-
-      // tsunami + shark celebration effect
-      const tsunamiOverlay = document.getElementById('tsunamiOverlay');
-      spawnTsunamiFX();
-      tsunamiOverlay.classList.add('show');
-      setTimeout(()=>{
-        tsunamiOverlay.classList.remove('show');
-        clearTsunamiFX();
-        // scroll them to the members section so they can see themselves added
-        document.getElementById('members').scrollIntoView({behavior:'smooth'});
-      }, 3800);
-    }, 1000);
+      tsunamiOverlay.classList.remove('show');
+      clearTsunamiFX();
+      // scroll them to the members section so they can see themselves added
+      document.getElementById('members').scrollIntoView({behavior:'smooth'});
+    }, 3800);
   });
 
   function spawnTsunamiFX(){
