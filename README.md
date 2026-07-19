@@ -1,6 +1,11 @@
 # DevCircle
 
 A student community website developed using HTML, CSS, and JavaScript.
+## 📸 Project Screenshot
+
+![DevCircle Homepage](home.png)
+
+## ✨ Features
 
 ## Features
 
